@@ -134,8 +134,8 @@ void trace()
         _g_trace_data->end = soinfo.start + soinfo.size;
         _g_trace_data->target = trace_func;
         _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
-                                                            (void*)(hook_and_trace_arg4),
-                                                            (void**)&ori_arg4);
+                                                            (void*)(hook_and_trace_arg8),
+                                                            (void**)&ori_arg8);
     }
     else
     {

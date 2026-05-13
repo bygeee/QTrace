@@ -27,11 +27,8 @@ using namespace QBDI;
 g_trace_data* _g_trace_data = nullptr;
 int bufsize = 0x1000000;
 bool debugInsn = false;
-func_arg_0 ori_arg0{};
-func_arg_1 ori_arg1{};
-func_arg_2 ori_arg2{};
-func_arg_3 ori_arg3{};
-func_arg_4 ori_arg4{};
+
+func_arg_8 ori_arg8{};
 
 
 void setBufferSize(int size)
@@ -138,86 +135,31 @@ size_t trace(size_t regs[31])
     return qbdi_retval;
 }
 
-size_t hook_and_trace_arg0()
+size_t hook_and_trace_arg8(size_t x0,size_t x1,size_t x2,size_t x3,size_t x4,size_t x5,size_t x6,size_t x7)
 {
-    size_t regs[31] = {0};
-    save_regs(regs);
-    size_t result = trace(regs);
-    _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
-                                                        (void*)(hook_and_trace_arg0),
-                                                        (void**)&ori_arg0);
-    return result;
-}
-
-size_t hook_and_trace_arg1(size_t x0)
-{
-    //对参数x0进行解析过滤,不符合条件的直接调用原函数返回
-    //return ori_arg1(x0);
-    size_t regs[31] = {0};
-    save_regs(regs);
-    regs[0] = x0;
-    size_t result = trace(regs);
-    _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
-                                                        (void*)(hook_and_trace_arg1),
-                                                        (void**)&ori_arg1);
-    return result;
-}
-
-size_t hook_and_trace_arg2(size_t x0,size_t x1)
-{
-    //对参数x0,x1进行解析过滤,不符合条件的直接调用原函数返回
-    //return ori_arg2(x0,x1);
-    size_t regs[31] = {0};
-    save_regs(regs);
-    regs[0] = x0;
-    regs[1] = x1;
-    size_t result = trace(regs);
-    _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
-                                                        (void*)(hook_and_trace_arg2),
-                                                        (void**)&ori_arg2);
-    return result;
-}
-
-size_t hook_and_trace_arg3(size_t x0,size_t x1,size_t x2)
-{
-    //对参数x0,x1进行解析过滤,不符合条件的直接调用原函数返回
-    //return ori_arg3(x0,x1,x2);
-    size_t regs[31] = {0};
-    save_regs(regs);
-    regs[0] = x0;
-    regs[1] = x1;
-    regs[2] = x2;
-    size_t result = trace(regs);
-    _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
-                                                        (void*)(hook_and_trace_arg3),
-                                                        (void**)&ori_arg3);
-    return result;
-}
-
-size_t hook_and_trace_arg4(size_t x0,size_t x1,size_t x2,size_t x3)
-{
-    //对参数x0,x1进行解析过滤,不符合条件的直接调用原函数返回
-    //return ori_arg4(x0,x1,x2,x3);
-    if(x2 != 0x975dbf9a)
-    {
-        return ori_arg4(x0,x1,x2,x3);
-    }
     size_t regs[31] = {0};
     save_regs(regs);
     regs[0] = x0;
     regs[1] = x1;
     regs[2] = x2;
     regs[3] = x3;
-    size_t result = trace(regs);
-    _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
-                                                        (void*)(hook_and_trace_arg4),
-                                                        (void**)&ori_arg4);
-    return result;
-}
-
-size_t trace_jni_onload(size_t jni,size_t jobj)
-{
-    return hook_and_trace_arg2(jni,jobj);
+    regs[4] = x4;
+    regs[5] = x5;
+    regs[6] = x6;
+    regs[7] = x7;
+    //根据参数过滤条件
+    /*if(x0 == 1)
+    {
+        return ori_arg8(x0,x1,x2,x3,x4,x5,x6,x7);
+    }
+    else
+    {*/
+        size_t result = trace(regs);
+        _g_trace_data->hooktask = shadowhook_hook_func_addr((void*)(_g_trace_data->start + _g_trace_data->target),
+                                                            (void*)(hook_and_trace_arg8),
+                                                            (void**)&ori_arg8);
+        return result;
+    //}
 }
 
 bool checkAndCallHook(QBDI::VM *vm, QBDI::GPRState *gprState,size_t addr,size_t lastaddr)
