@@ -12,6 +12,7 @@
 #include <sstream>
 #include <sys/stat.h>
 #include <sys/mman.h>
+#include <link.h>
 
 // 修复Android NDK中_Unwind_Word未定义的问题
 #ifndef _Unwind_Word
@@ -27,6 +28,61 @@ typedef uintptr_t _Unwind_Word;
 #include "HookUtils.h"
 #include "elf.h"
 #include <fcntl.h>
+
+struct LoadedSoSearch {
+    const char* name;
+    MapItemInfo info;
+};
+
+static bool loadedSoNameMatches(const char* path, const char* name) {
+    if (path == nullptr || name == nullptr) {
+        return false;
+    }
+
+    const char* basename = strrchr(path, '/');
+    basename = basename == nullptr ? path : basename + 1;
+    return strcmp(basename, name) == 0;
+}
+
+static int findLoadedSoByName(struct dl_phdr_info* dlInfo, size_t, void* data) {
+    auto* search = reinterpret_cast<LoadedSoSearch*>(data);
+    if (!loadedSoNameMatches(dlInfo->dlpi_name, search->name)) {
+        return 0;
+    }
+
+    size_t base = static_cast<size_t>(dlInfo->dlpi_addr);
+    size_t maxEnd = 0;
+    for (int i = 0; i < dlInfo->dlpi_phnum; ++i) {
+        const ElfW(Phdr)& phdr = dlInfo->dlpi_phdr[i];
+        if (phdr.p_type != PT_LOAD) {
+            continue;
+        }
+
+        size_t segEnd = base + static_cast<size_t>(phdr.p_vaddr + phdr.p_memsz);
+        if (segEnd > maxEnd) {
+            maxEnd = segEnd;
+        }
+    }
+
+    if (base == 0 || maxEnd <= base) {
+        return 0;
+    }
+
+    search->info.start = base;
+    search->info.end = maxEnd;
+    search->info.size = maxEnd - base;
+    LOGE("found loaded so by phdr:%s,base:%lx,size:%lx,path:%s",
+         search->name, search->info.start, search->info.size, dlInfo->dlpi_name);
+    return 1;
+}
+
+static MapItemInfo getLoadedSoBaseAddressByName(const char* name) {
+    LoadedSoSearch search{};
+    search.name = name;
+    search.info = {0};
+    dl_iterate_phdr(findLoadedSoByName, &search);
+    return search.info;
+}
 
 char* bytes_to_hex_string(char* bytes, size_t len) {
     if (bytes == NULL || len == 0) {
@@ -425,6 +481,14 @@ MapItemInfo getSoBaseAddress(const char *libpath, const char *name) {
         }
     }
     fclose(fp);
+    fclose(raw);
+    if (line != nullptr) {
+        free(line);
+    }
+    if (info.start == 0) {
+        LOGE("header match failed for %s, fallback to dl_iterate_phdr", name);
+        info = getLoadedSoBaseAddressByName(name);
+    }
     return info;
 }
 
@@ -507,11 +571,18 @@ char* getAppName(){
         return appName;
     }
     FILE* f = fopen("/proc/self/cmdline","r");
+    if (f == nullptr) {
+        LOGE("can't open /proc/self/cmdline");
+        return nullptr;
+    }
     size_t len;
     char* line = nullptr;
     if(getline(&line,&len,f)==-1){
         perror("can't get app name");
+        fclose(f);
+        return nullptr;
     }
+    fclose(f);
     appName = line;
     //LOGD("get appName %s",appName);
     return appName;
@@ -522,8 +593,13 @@ char* getPrivatePath(){
     if (privatePath[0] != 0 ){
         return privatePath;
     }
-    // 使用应用私有files目录，避免权限问题
-    sprintf(privatePath,"%s%s%s","/storage/emulated/0/Android/data/",getAppName(),"/files/");
+    char* currentAppName = getAppName();
+    if (currentAppName == nullptr || currentAppName[0] == '\0') {
+        LOGE("get app name failed");
+        return privatePath;
+    }
+    // Write trace logs under public Download for easier adb pull / file-manager access.
+    snprintf(privatePath, sizeof(privatePath), "%s%s%s", "/sdcard/Download/QTrace/", currentAppName, "/");
     LOGI("Using private path: %s", privatePath);
     return privatePath;
 }

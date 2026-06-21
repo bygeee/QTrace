@@ -78,12 +78,12 @@ size_t trace_func = 0;
 
 void config()
 {
-    libname = "libtiny.so";
+    libname = "libqdbi_test_damo.so";
 
     string localdir(libdir);
     libpath = localdir + libname;
 
-    trace_func = 0x173148;
+    trace_func = 0x25BA0;
 
     //trace buffer 累计多少字节往本地写一次。设置为0表示每trace一条指令就写入本地
     setBufferSize(0x10000000);//每16M写一次
@@ -123,7 +123,7 @@ void trace()
     /*自定义hook监控*/
     initHookData();
     //添加目标so的hook点位
-    addHooks();
+//    addHooks();
 
     auto soinfo = getSoBaseAddress(libpath.c_str(),libname.c_str());
     if(soinfo.start != 0)

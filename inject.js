@@ -1,54 +1,150 @@
-function hookLoadLibrary () {
-  var f_dlopen = Module.findExportByName(null, "__loader_dlopen")
-  Interceptor.attach(f_dlopen, {
-    onEnter: function (args) {
-      this.soname = args[0].readCString()
-      this.find = false
-      //console.log("dlopen:" + this.soname)
-      if(this.soname.indexOf("libtiny") != -1)
-      {
-        this.find = true
+"use strict";
+
+const TARGET_LIB = "libqdbi_test_damo.so";
+const TRACE_SO_PATH = "/data/user/0/com.grand.qdbi_test_damo/libnativelib.so";
+
+let injected = false;
+
+function findExport(name) {
+  if (typeof Module.findGlobalExportByName === "function") {
+    return Module.findGlobalExportByName(name);
+  }
+
+  if (typeof Module.getGlobalExportByName === "function") {
+    try {
+      return Module.getGlobalExportByName(name);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  if (typeof Module.findExportByName === "function") {
+    return Module.findExportByName(null, name);
+  }
+
+  for (const module of Process.enumerateModules()) {
+    if (typeof module.findExportByName === "function") {
+      const ptr = module.findExportByName(name);
+      if (ptr !== null) {
+        return ptr;
+      }
+    }
+
+    if (typeof module.getExportByName === "function") {
+      try {
+        return module.getExportByName(name);
+      } catch (_) {
+      }
+    }
+  }
+
+  return null;
+}
+
+function matchesTarget(soname) {
+  if (soname === null) {
+    return false;
+  }
+
+  const basename = soname.split("/").pop();
+  return basename === TARGET_LIB;
+}
+
+function readCString(ptr) {
+  if (ptr.isNull()) {
+    return null;
+  }
+
+  try {
+    return ptr.readCString();
+  } catch (_) {
+    return null;
+  }
+}
+
+function attachDlopenHook(name) {
+  const ptr = findExport(name);
+  if (ptr === null) {
+    console.log("skip hook, export not found: " + name);
+    return false;
+  }
+
+  Interceptor.attach(ptr, {
+    onEnter(args) {
+      this.soname = readCString(args[0]);
+      this.needInject = matchesTarget(this.soname);
+      if (this.needInject) {
+        console.log("matched " + name + ": " + this.soname);
       }
     },
-    onLeave: function (retval) {
-        if(this.find)
-        {
-            inject()
-        }
+    onLeave(retval) {
+      if (this.needInject && !retval.isNull()) {
+        inject();
+      }
     }
-  })
+  });
 
-  var f_android_dlopen_ext_base = Module.findExportByName(null, "android_dlopen_ext")
-  Interceptor.attach(f_android_dlopen_ext_base, {
-    onEnter: function (args) {
-      this.soname = args[0].readCString()
-      this.find = false
-      //console.log("android_dlopen_ext:" + this.soname)
-        if(this.soname.indexOf("libtiny") != -1)
-        {
-          this.find = true
-        }
-    },
-    onLeave: function (retval) {
-        if(this.find)
-        {
-            inject()
-        }
-    }
-  })
+  console.log("hooked " + name + " @ " + ptr);
+  return true;
 }
 
-function inject () {
-  var dlopenPtr = Module.findExportByName(null, 'dlopen');
-  var dlopen = new NativeFunction(dlopenPtr, 'pointer', ['pointer', 'int']);
-  var soPath = "/data/local/tmp/libnativelib.so"; // trace 模块路径
-  var soPathPtr = Memory.allocUtf8String(soPath);
-  console.log("inject libnativelib.so")
-  dlopen(soPathPtr, 2);
+function inject() {
+  if (injected) {
+    return;
+  }
+
+  const dlopenPtr = findExport("dlopen");
+  if (dlopenPtr === null) {
+    console.log("inject failed, dlopen export not found");
+    return;
+  }
+
+  injected = true;
+  const dlopen = new NativeFunction(dlopenPtr, "pointer", ["pointer", "int"]);
+  const soPathPtr = Memory.allocUtf8String(TRACE_SO_PATH);
+  const handle = dlopen(soPathPtr, 2);
+
+  console.log("inject " + TRACE_SO_PATH + ", handle=" + handle);
+  if (handle.isNull()) {
+    const dlerrorPtr = findExport("dlerror");
+    if (dlerrorPtr !== null) {
+      const dlerror = new NativeFunction(dlerrorPtr, "pointer", []);
+      const error = dlerror();
+      if (!error.isNull()) {
+        console.log("dlerror: " + error.readCString());
+      }
+    }
+    injected = false;
+  }
 }
 
-function attachInject () {
-  inject()
+function injectIfAlreadyLoaded() {
+  for (const module of Process.enumerateModules()) {
+    const path = module.path || module.name;
+    if (matchesTarget(path)) {
+      console.log("target already loaded: " + path);
+      inject();
+      return;
+    }
+  }
+}
+
+function hookLoadLibrary() {
+  const hooked = [
+    "__loader_dlopen",
+    "android_dlopen_ext",
+    "dlopen"
+  ].map(attachDlopenHook).some(Boolean);
+
+  if (!hooked) {
+    console.log("no dlopen-style export found");
+  }
+
+  injectIfAlreadyLoaded();
+}
+
+function attachInject() {
+  inject();
 }
 
 setImmediate(hookLoadLibrary);
